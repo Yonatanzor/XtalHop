@@ -2,7 +2,7 @@
 
 A Streamlit web tool that takes a protein amino acid sequence, searches the RCSB PDB for structural homologs via MMseqs2, extracts their crystallization conditions, and aggregates them into a consensus starting formulation. It also runs a local biophysical risk panel (isoelectric point, instability index, GRAVY score, amino acid composition flags) powered by Biopython.
 
-**Live app:** *(link will be added after Streamlit Cloud deployment)*
+**Live app:** https://xtalhop.streamlit.app
 
 ---
 
