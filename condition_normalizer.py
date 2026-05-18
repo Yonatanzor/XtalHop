@@ -367,6 +367,37 @@ def _classify_name(name_upper: str) -> tuple[str, str]:
     return name_upper.title(), 'precipitant'
 
 
+def _extract_named_chemicals(
+    text: str, exclude_names: set[str]
+) -> tuple[list[ChemComponent], list[ChemComponent]]:
+    """
+    Fallback lookup using canonical name tables directly.
+    Catches chemicals missed by _CONC_CHEM_RE — e.g. parenthetical formulas like
+    (NH4)2SO4, or entries where no concentration precedes the name (like old 1C10 records).
+    """
+    salts: list[ChemComponent] = []
+    buffers: list[ChemComponent] = []
+    seen: set[str] = set(exclude_names)
+
+    for raw, canonical, start, end in _find_canonical(text, SALT_CANONICAL):
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        conc, unit = _concentration_in_segment(text, start, end)
+        salts.append(ChemComponent(name=canonical, raw_name=raw,
+                                   concentration=conc, unit=unit, role='precipitant'))
+
+    for raw, canonical, start, end in _find_canonical(text, BUFFER_CANONICAL):
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        conc, unit = _concentration_in_segment(text, start, end)
+        buffers.append(ChemComponent(name=canonical, raw_name=raw,
+                                     concentration=conc, unit=unit, role='buffer'))
+
+    return salts, buffers
+
+
 def extract_salts_and_buffers(text: str) -> tuple[list[ChemComponent], list[ChemComponent]]:
     """
     Pattern-first extraction: find all {concentration} {chemical_name} in text.
@@ -438,6 +469,12 @@ def normalize(pdbx_details: str | None) -> NormalizedCondition:
             masked = masked[:idx] + ' ' * len(p.raw_name) + masked[idx + len(p.raw_name):]
 
     salts, buffers = extract_salts_and_buffers(masked)
+
+    # Fallback: catch formulas like (NH4)2SO4 and name-only entries (no concentration prefix)
+    found_names = {c.name for c in salts + buffers}
+    fb_salts, fb_buffers = _extract_named_chemicals(masked, found_names)
+    salts = salts + fb_salts
+    buffers = buffers + fb_buffers
 
     # Tag role: if a buffer name also appears in salts (e.g. SODIUM CITRATE), keep as buffer
     buffer_names = {b.name for b in buffers}

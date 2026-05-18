@@ -184,8 +184,12 @@ if run_clicked:
         for rec in e.crystal_grow:
             if rec.pdbx_details:
                 cond = normalize(rec.pdbx_details)
-                s = summarize(cond)
-                return s[:80] + "..." if len(s) > 80 else s
+                if cond.precipitants or cond.buffers:
+                    s = summarize(cond)
+                    return s[:80] + "..." if len(s) > 80 else s
+                # Fallback: show the raw text so users see something meaningful
+                raw = rec.pdbx_details.strip().replace("\n", "; ")
+                return raw[:80] + "..." if len(raw) > 80 else raw
         return ""
 
     rows = []
@@ -202,8 +206,11 @@ if run_clicked:
             "Method": e.experimental_method or "?",
             "Identity %": f"{ident*100:.1f}",
             "Resolution Å": f"{e.resolution_a:.2f}" if e.resolution_a else "N/A",
+            "Space Group": e.space_group or "—",
+            "Unit Cell": e.unit_cell.format_compact() if e.unit_cell else "—",
             "UniProt": ", ".join(e.uniprot_ids[:2]) or "—",
             "pH": ph_val or "—",
+            "Ligands": ", ".join(e.ligand_ids[:6]) or "—",
             "Condition (preview)": condition_short or (e.exclusion_reason or ""),
             "Flag": _flag(e),
         })

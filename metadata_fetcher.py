@@ -37,6 +37,25 @@ query GetMetadata($ids: [String!]!) {
         rcsb_id
       }
     }
+    symmetry {
+      space_group_name_H_M
+    }
+    cell {
+      length_a
+      length_b
+      length_c
+      angle_alpha
+      angle_beta
+      angle_gamma
+    }
+    nonpolymer_entities {
+      nonpolymer_comp {
+        chem_comp {
+          id
+          name
+        }
+      }
+    }
   }
 }
 """
@@ -68,6 +87,23 @@ CSM_ENTRY_PREFIXES = ("AF-", "MA-")
 # ---------------------------------------------------------------------------
 
 @dataclass
+class UnitCell:
+    a: float
+    b: float
+    c: float
+    alpha: float
+    beta: float
+    gamma: float
+
+    def format_compact(self) -> str:
+        dims = f"{self.a:.1f}×{self.b:.1f}×{self.c:.1f}"
+        non_ortho = not (self.alpha == 90.0 and self.beta == 90.0 and self.gamma == 90.0)
+        if non_ortho:
+            dims += f" ({self.alpha:.0f}/{self.beta:.0f}/{self.gamma:.0f}°)"
+        return dims + " Å"
+
+
+@dataclass
 class CrystallizationRecord:
     ph: float | None
     temp_k: float | None
@@ -91,6 +127,11 @@ class EntryMetadata:
     has_crystallization_data: bool = False
     # Human-readable warning for the UI
     exclusion_reason: str | None = None
+    # Crystal geometry
+    space_group: str | None = None
+    unit_cell: UnitCell | None = None
+    # Ligands (non-polymer entities, water excluded)
+    ligand_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -145,6 +186,38 @@ def _parse_crystal_grow(records: list[dict]) -> list[CrystallizationRecord]:
             ph_range=rec.get("pdbx_pH_range"),
         ))
     return result
+
+
+def _extract_unit_cell(raw: dict) -> UnitCell | None:
+    cell = raw.get("cell")
+    if not cell:
+        return None
+    try:
+        return UnitCell(
+            a=float(cell["length_a"]),
+            b=float(cell["length_b"]),
+            c=float(cell["length_c"]),
+            alpha=float(cell["angle_alpha"]),
+            beta=float(cell["angle_beta"]),
+            gamma=float(cell["angle_gamma"]),
+        )
+    except (TypeError, KeyError, ValueError):
+        return None
+
+
+_SOLVENT_IDS = {"HOH", "DOD", "H2O", "WAT"}
+
+
+def _extract_ligands(raw: dict) -> list[str]:
+    """Return deduplicated ligand IDs (3-letter codes), excluding water."""
+    ids = []
+    for entity in (raw.get("nonpolymer_entities") or []):
+        comp = (entity.get("nonpolymer_comp") or {})
+        chem = (comp.get("chem_comp") or {})
+        chem_id = chem.get("id")
+        if chem_id and chem_id.upper() not in _SOLVENT_IDS:
+            ids.append(chem_id)
+    return list(dict.fromkeys(ids))
 
 
 def _classify(entry_id: str, raw: dict) -> EntryMetadata:
@@ -203,6 +276,9 @@ def _classify(entry_id: str, raw: dict) -> EntryMetadata:
         is_non_crystallographic=is_non_cryst,
         has_crystallization_data=has_data,
         exclusion_reason=exclusion_reason,
+        space_group=(raw.get("symmetry") or {}).get("space_group_name_H_M"),
+        unit_cell=_extract_unit_cell(raw),
+        ligand_ids=_extract_ligands(raw),
     )
 
 
